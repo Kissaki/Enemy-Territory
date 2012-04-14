@@ -120,12 +120,12 @@ print 'cpu: ' + cpu
 CC = 'gcc -m32'
 CXX = 'g++ -m32'
 JOBS = '1'
-BUILD = 'debug'
-DEDICATED = '2'
+BUILD = 'release'
+DEDICATED = '1'
 TARGET_CORE = '1'
-TARGET_GAME = '1'
-TARGET_CGAME = '1'
-TARGET_UI = '1'
+TARGET_GAME = '0'
+TARGET_CGAME = '0'
+TARGET_UI = '0'
 TARGET_BSPC = '0'
 BUILD_ROOT = 'build'
 NOCONF = '0'
@@ -235,7 +235,8 @@ if ( OS == 'Darwin' ):
 
 BASECPPFLAGS.append( '-pipe' )
 # warn all
-BASECPPFLAGS.append( '-Wall' )
+# BASECPPFLAGS.append( '-Wall' )
+BASECPPFLAGS.append( '-w' )
 # don't wrap gcc messages
 BASECPPFLAGS.append( '-fmessage-length=0' )
 
@@ -344,7 +345,7 @@ if ( TARGET_CORE == '1' ):
 		if ( g_os == 'win32' ):
 			toplevel_targets.append( InstallAs( '#etded.exe', etded ) )
 		else:
-			toplevel_targets.append( InstallAs( '#etded.' + cpu, etded ) )
+			toplevel_targets.append( InstallAs( '#eteng.' + cpu, etded ) )
 
 if ( TARGET_BSPC == '1' ):
 	Export( 'GLOBALS ' + GLOBALS )

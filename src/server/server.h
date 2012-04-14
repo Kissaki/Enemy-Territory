@@ -116,6 +116,7 @@ typedef struct {
 
 	int num_tagheaders;
 	int num_tags;
+	qboolean InitGetstatusFix;
 } server_t;
 
 
@@ -290,6 +291,7 @@ extern vm_t            *gvm;                // game virtual machine
 
 
 #define MAX_MASTER_SERVERS  5
+#define MAX_RCON_LIST		5
 
 extern cvar_t  *sv_fps;
 extern cvar_t  *sv_timeout;
@@ -351,6 +353,18 @@ extern cvar_t *sv_packetdelay;
 
 //fretn
 extern cvar_t *sv_fullmsg;
+
+//Sol
+extern cvar_t *sv_protocol;
+extern cvar_t *sv_reqtime;
+extern cvar_t *sv_protect;
+extern cvar_t *sv_protocolcheck;
+extern cvar_t *sv_maxreqpersec;
+extern cvar_t *sv_maxclientsip;
+extern cvar_t *sv_rconfilter;
+extern cvar_t *sv_rconlist[MAX_RCON_LIST];
+extern cvar_t *sv_statustime;
+extern cvar_t *sv_bothmaster;
 
 //===========================================================
 
@@ -536,3 +550,13 @@ qboolean SV_Netchan_Process( client_t *client, msg_t *msg );
 #define DLNOTIFY_REDIRECT   0x00000001  // "Redirecting client ..."
 #define DLNOTIFY_BEGIN      0x00000002  // "clientDownload: 4 : beginning ..."
 #define DLNOTIFY_ALL        ( DLNOTIFY_REDIRECT | DLNOTIFY_BEGIN )
+
+typedef struct getstatus_list_s{
+	netadr_t adr;
+	int time;
+	int numqueries;
+	qboolean reject;
+	qboolean inuse;
+}getstatus_list_t;
+
+getstatus_list_t *getstatus[256];

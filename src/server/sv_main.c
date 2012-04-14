@@ -92,6 +92,18 @@ cvar_t  *sv_packetdelay;
 // fretn
 cvar_t  *sv_fullmsg;
 
+//Sol
+cvar_t	*sv_protocolcheck;
+cvar_t  *sv_protect;
+cvar_t  *sv_protocol;
+cvar_t	*sv_bothmaster;
+cvar_t	*sv_maxreqpersec;
+cvar_t  *sv_reqtime;
+cvar_t	*sv_maxclientsip;
+cvar_t  *sv_rconfilter;
+cvar_t	*sv_statustime;
+cvar_t  *sv_rconlist[MAX_RCON_LIST];
+
 void SVC_GameCompleteStatus( netadr_t from );       // NERVE - SMF
 
 #define LL( x ) x = LittleLong( x )
@@ -207,7 +219,7 @@ void QDECL SV_SendServerCommand( client_t *cl, const char *fmt, ... ) {
 			continue;
 		}
 		// Ridah, don't need to send messages to AI
-		if ( client->gentity && client->gentity->r.svFlags & SVF_BOT ) {
+		if ( client->gentity && (client->gentity->r.svFlags & SVF_BOT) ) { 	//N!trox* - Code typo, used to send to bots aswell
 			continue;
 		}
 		// done.
@@ -245,10 +257,10 @@ void SV_MasterHeartbeat( const char *hbname ) {
 	static netadr_t adr[MAX_MASTER_SERVERS];
 	int i;
 
-	if ( SV_GameIsSinglePlayer() ) {
+/*	if ( SV_GameIsSinglePlayer() ) {
 		return;     // no heartbeats for SP
 	}
-
+*/
 	// "dedicated 1" is for lan play, "dedicated 2" is for inet public play
 	if ( !com_dedicated || com_dedicated->integer != 2 ) {
 		return;     // only dedicated servers send heartbeats
@@ -308,15 +320,21 @@ NERVE - SMF - Sends gameCompleteStatus messages to all master servers
 void SV_MasterGameCompleteStatus() {
 	static netadr_t adr[MAX_MASTER_SERVERS];
 	int i;
+	//int time = Sys_Milliseconds();
 
-	if ( SV_GameIsSinglePlayer() ) {
+	/*if ( SV_GameIsSinglePlayer() ) {
 		return;     // no master game status for SP
-	}
+	}*/
 
 	// "dedicated 1" is for lan play, "dedicated 2" is for inet public play
 	if ( !com_dedicated || com_dedicated->integer != 2 ) {
 		return;     // only dedicated servers send master game status
 	}
+	
+	/*if ( svs.time < svs.nextHeartbeatTime ) {
+		return;
+	}
+	svs.nextHeartbeatTime = svs.time + (sv_statustime->integer*1000) ;*/
 
 	// send to group masters
 	for ( i = 0 ; i < MAX_MASTER_SERVERS ; i++ ) {
@@ -404,7 +422,7 @@ qboolean SV_VerifyChallenge( char *challenge ) {
 			 challenge[i] == ';' ||
 			 challenge[i] == '"' ||
 			 challenge[i] < 32 ||   // non-ascii
-			 challenge[i] > 126 // non-ascii
+			 challenge[i] > 126 	// non-ascii
 			 ) {
 			return qfalse;
 		}
@@ -421,6 +439,7 @@ and all connected players.  Used for getting detailed information after
 the simple info query.
 ================
 */
+
 void SVC_Status( netadr_t from ) {
 	char player[1024];
 	char status[MAX_MSGLEN];
@@ -430,16 +449,67 @@ void SVC_Status( netadr_t from ) {
 	int statusLength;
 	int playerLength;
 	char infostring[MAX_INFO_STRING];
+	qboolean found = qfalse;
+	int time = Sys_Milliseconds();
 
-	// ignore if we are in single player
-	if ( SV_GameIsSinglePlayer() ) {
+	//Set this cvar to 0 to ignore all the getstatus requests (and completely hide the server)
+	if(sv_maxreqpersec->integer == 0){
 		return;
 	}
 
+	if(sv.InitGetstatusFix){	// N!trox credits
+		//Find the current IP in array
+		for(i = 0 ; i < 256 ; i++){
+			if(NET_CompareAdr(getstatus[i]->adr, from)){
+				//If this IP has reached the limit, reject
+				if((getstatus[i]->numqueries >= sv_maxreqpersec->integer ) && ((time - getstatus[i]->time) < 1000)){
+					getstatus[i]->reject = qtrue;
+				} else if ( getstatus[i]->reject && ((time - getstatus[i]->time) > sv_reqtime->integer)){ //IP has been rejected for 1 second, clear
+					getstatus[i]->reject = qfalse;
+					getstatus[i]->numqueries = 1;
+					getstatus[i]->time = 0;
+					getstatus[i]->inuse = qfalse;
+					NET_StringToAdr("0.0.0.0:0", &getstatus[i]->adr); //Reset IP
+				} else {
+					getstatus[i]->numqueries++;
+					if(getstatus[i]->numqueries <= 1){ //Time only set for new queries
+						getstatus[i]->time = time;
+					}
+				}
+				found = qtrue;
+				break;
+			}
+		}
+
+		if(!found){ //Not found, add it to array
+			for(i = 0 ; i < 256 ; i++){
+				if(!getstatus[i]->inuse){
+					getstatus[i]->time = time;
+					getstatus[i]->adr = from;
+					getstatus[i]->numqueries++;
+					getstatus[i]->reject = qfalse;
+					getstatus[i]->inuse = qtrue;
+					found = qtrue;
+					break;
+				}
+			}
+		}
+
+		if(found && getstatus[i]->reject){ //This IP is flooding
+			return;
+		} 
+	} // END - if(sv.InitGetstatusFix)
+
+	// ignore if we are in single player
+/*	if ( SV_GameIsSinglePlayer() ) {
+		return;
+	}
+*/
 	//bani - bugtraq 12534
 	if ( !SV_VerifyChallenge( Cmd_Argv( 1 ) ) ) {
 		return;
 	}
+	
 
 	strcpy( infostring, Cvar_InfoString( CVAR_SERVERINFO | CVAR_SERVERINFO_NOUPDATE ) );
 
@@ -464,7 +534,7 @@ void SVC_Status( netadr_t from ) {
 		if ( cl->state >= CS_CONNECTED ) {
 			ps = SV_GameClientNum( i );
 			Com_sprintf( player, sizeof( player ), "%i %i \"%s\"\n",
-						 ps->persistant[PERS_SCORE], cl->ping, cl->name );
+				ps->persistant[PERS_SCORE], cl->ping, cl->name );
 			playerLength = strlen( player );
 			if ( statusLength + playerLength >= sizeof( status ) ) {
 				break;      // can't hold any more
@@ -496,9 +566,10 @@ void SVC_GameCompleteStatus( netadr_t from ) {
 	char infostring[MAX_INFO_STRING];
 
 	// ignore if we are in single player
-	if ( SV_GameIsSinglePlayer() ) {
+/*	if ( SV_GameIsSinglePlayer() ) {
 		return;
 	}
+*/		// Sol
 
 	//bani - bugtraq 12534
 	if ( !SV_VerifyChallenge( Cmd_Argv( 1 ) ) ) {
@@ -522,14 +593,14 @@ void SVC_GameCompleteStatus( netadr_t from ) {
 
 	status[0] = 0;
 	statusLength = 0;
+	
 
 	for ( i = 0 ; i < sv_maxclients->integer ; i++ ) {
 		cl = &svs.clients[i];
 		if ( cl->state >= CS_CONNECTED ) {
 			ps = SV_GameClientNum( i );
 			Com_sprintf( player, sizeof( player ), "%i %i \"%s\"\n",
-						 ps->persistant[PERS_SCORE], cl->ping, cl->name );
-			playerLength = strlen( player );
+				ps->persistant[PERS_SCORE], cl->ping, cl->name );
 			if ( statusLength + playerLength >= sizeof( status ) ) {
 				break;      // can't hold any more
 			}
@@ -539,6 +610,14 @@ void SVC_GameCompleteStatus( netadr_t from ) {
 	}
 
 	NET_OutOfBandPrint( NS_SERVER, from, "gameCompleteStatus\n%s\n%s", infostring, status );
+	
+	if( sv_bothmaster->integer == 1 ){		// N!trox
+		if ( sv_protocol->integer == 82 )
+			Info_SetValueForKey( infostring, "protocol", "84" );
+		else
+			Info_SetValueForKey( infostring, "protocol", "82" );
+		NET_OutOfBandPrint( NS_SERVER, from, "gameCompleteStatus\n%s\n%s", infostring, status );
+	}
 }
 
 /*
@@ -558,9 +637,10 @@ void SVC_Info( netadr_t from ) {
 	char    *balancedteams;
 
 	// ignore if we are in single player
-	if ( SV_GameIsSinglePlayer() ) {
+/*	if ( SV_GameIsSinglePlayer() ) {
 		return;
 	}
+*/	// Sol
 
 	//bani - bugtraq 12534
 	if ( !SV_VerifyChallenge( Cmd_Argv( 1 ) ) ) {
@@ -581,34 +661,33 @@ void SVC_Info( netadr_t from ) {
 	// to prevent timed spoofed reply packets that add ghost servers
 	Info_SetValueForKey( infostring, "challenge", Cmd_Argv( 1 ) );
 
-	Info_SetValueForKey( infostring, "protocol", va( "%i", PROTOCOL_VERSION ) );
-	Info_SetValueForKey( infostring, "hostname", sv_hostname->string );
-	Info_SetValueForKey( infostring, "serverload", va( "%i", svs.serverLoad ) );
-	Info_SetValueForKey( infostring, "mapname", sv_mapname->string );
-	Info_SetValueForKey( infostring, "clients", va( "%i", count ) );
-	Info_SetValueForKey( infostring, "sv_maxclients", va( "%i", sv_maxclients->integer - sv_privateClients->integer ) );
-	//Info_SetValueForKey( infostring, "gametype", va("%i", sv_gametype->integer ) );
-	Info_SetValueForKey( infostring, "gametype", Cvar_VariableString( "g_gametype" ) );
-	Info_SetValueForKey( infostring, "pure", va( "%i", sv_pure->integer ) );
+	Info_SetValueForKey( infostring, "protocol", va( "%i", sv_protocol->integer ) );	// Read-Only
+	Info_SetValueForKey( infostring, "hostname", sv_hostname->string );					// Read-Only
+	Info_SetValueForKey( infostring, "serverload", va( "%i", svs.serverLoad ) );		// Gametype ( not needed probably )
+	Info_SetValueForKey( infostring, "mapname", sv_mapname->string );					// Changable
+	Info_SetValueForKey( infostring, "clients", va( "%i", count ) );					// Changable
+	Info_SetValueForKey( infostring, "sv_maxclients", va( "%i", sv_maxclients->integer - sv_privateClients->integer ) );	// Changable ?
+	Info_SetValueForKey( infostring, "gametype", Cvar_VariableString( "g_gametype" ) );	// as serverload
+	Info_SetValueForKey( infostring, "pure", va( "%i", sv_pure->integer ) );			// Read-Only
 
 	if ( sv_minPing->integer ) {
-		Info_SetValueForKey( infostring, "minPing", va( "%i", sv_minPing->integer ) );
+		Info_SetValueForKey( infostring, "minPing", va( "%i", sv_minPing->integer ) );	// read only
 	}
 	if ( sv_maxPing->integer ) {
-		Info_SetValueForKey( infostring, "maxPing", va( "%i", sv_maxPing->integer ) );
+		Info_SetValueForKey( infostring, "maxPing", va( "%i", sv_maxPing->integer ) );	// read only
 	}
-	gamedir = Cvar_VariableString( "fs_game" );
+	gamedir = Cvar_VariableString( "fs_game" );											
 	if ( *gamedir ) {
-		Info_SetValueForKey( infostring, "game", gamedir );
+		Info_SetValueForKey( infostring, "game", gamedir );								// read only
 	}
-	Info_SetValueForKey( infostring, "sv_allowAnonymous", va( "%i", sv_allowAnonymous->integer ) );
+	Info_SetValueForKey( infostring, "sv_allowAnonymous", va( "%i", sv_allowAnonymous->integer ) );		// read only ( not needed probably )
 
 	// Rafael gameskill
 //	Info_SetValueForKey (infostring, "gameskill", va ("%i", sv_gameskill->integer));
 	// done
 
-	Info_SetValueForKey( infostring, "friendlyFire", va( "%i", sv_friendlyFire->integer ) );        // NERVE - SMF
-	Info_SetValueForKey( infostring, "maxlives", va( "%i", sv_maxlives->integer ? 1 : 0 ) );        // NERVE - SMF
+	Info_SetValueForKey( infostring, "friendlyFire", va( "%i", sv_friendlyFire->integer ) );        // NERVE - SMF	( const )
+	Info_SetValueForKey( infostring, "maxlives", va( "%i", sv_maxlives->integer ? 1 : 0 ) );        // NERVE - SMF	// read only ( not needed )
 	Info_SetValueForKey( infostring, "needpass", va( "%i", sv_needpass->integer ? 1 : 0 ) );
 	Info_SetValueForKey( infostring, "gamename", GAMENAME_STRING );                               // Arnout: to be able to filter out Quake servers
 
@@ -620,7 +699,7 @@ void SVC_Info( netadr_t from ) {
 
 	weaprestrict = Cvar_VariableString( "g_heavyWeaponRestriction" );
 	if ( weaprestrict ) {
-		Info_SetValueForKey( infostring, "weaprestrict", weaprestrict );
+		Info_SetValueForKey( infostring, "weaprestrict", weaprestrict );		// not needed probably ?
 	}
 
 	balancedteams = Cvar_VariableString( "g_balancedteams" );
@@ -629,6 +708,14 @@ void SVC_Info( netadr_t from ) {
 	}
 
 	NET_OutOfBandPrint( NS_SERVER, from, "infoResponse\n%s", infostring );
+
+	if( sv_bothmaster->integer == 1 ){
+		if ( sv_protocol->integer == 82 )
+			Info_SetValueForKey( infostring, "protocol", "84" );
+		else
+			Info_SetValueForKey( infostring, "protocol", "82" );
+		NET_OutOfBandPrint( NS_SERVER, from, "infoResponse\n%s", infostring );
+	}
 }
 
 /*
@@ -654,6 +741,7 @@ void SVC_RemoteCommand( netadr_t from, msg_t *msg ) {
 	qboolean valid;
 	unsigned int time;
 	char remaining[1024];
+	qboolean check;
 	// show_bug.cgi?id=376
 	// if we send an OOB print message this size, 1.31 clients die in a Com_Printf buffer overflow
 	// the buffer overflow will be fixed in > 1.31 clients
@@ -695,6 +783,25 @@ void SVC_RemoteCommand( netadr_t from, msg_t *msg ) {
 	} else if ( !valid ) {
 		Com_Printf( "Bad rconpassword.\n" );
 	} else {
+		if ( sv_rconfilter->integer == 1 ) {
+			int i ;		// Sol
+			for ( i=0 ; i < MAX_RCON_LIST ; i++ ) {		// Isn't it simple solution?
+				if ( strcmp( sv_rconlist[i]->string, va( "%i.%i.%i.%i", from.ip[0], from.ip[1], from.ip[2], from.ip[3] ) ) == 0 ||
+					 strcmp( sv_rconlist[i]->string, va( "%i.%i.%i.*", from.ip[0], from.ip[1], from.ip[2] ) ) == 0	||
+					 strcmp( sv_rconlist[i]->string, va( "%i.%i.*.*", from.ip[0], from.ip[1] ) ) == 0 ||
+					 strcmp( sv_rconlist[i]->string, va( "%i.*.*.*", from.ip[0] ) ) == 0
+					) {
+					check = qtrue ;
+					break ;
+				} else {
+					check = qfalse ;
+				}
+			}
+			if ( !check ) {
+				Com_Printf( "You are not able to use rcon\n" );
+				goto end ;
+			}
+		}
 		remaining[0] = 0;
 
 		// ATVI Wolfenstein Misc #284
@@ -715,7 +822,7 @@ void SVC_RemoteCommand( netadr_t from, msg_t *msg ) {
 		Cmd_ExecuteString( remaining );
 
 	}
-
+	end:
 	Com_EndRedirect();
 }
 
@@ -989,6 +1096,7 @@ void SV_Frame( int msec ) {
 	int startTime;
 	char mapname[MAX_QPATH];
 	int frameStartTime = 0, frameEndTime;
+	int i;
 
 	// the menu kills the server with this cvar
 	if ( sv_killserver->integer ) {
@@ -1098,6 +1206,19 @@ void SV_Frame( int msec ) {
 
 		// let everything in the world think and move
 		VM_Call( gvm, GAME_RUN_FRAME, svs.time );
+		
+		//getstatus Exploit Fix - AutoCleanup (delete IP from array after 3 seconds)
+		if(sv.InitGetstatusFix){
+			for(i = 0 ; i < 256 ; i++){
+				if(getstatus[i]->inuse && ((Sys_Milliseconds() - getstatus[i]->time) > 3000)){
+					getstatus[i]->reject = qfalse;
+					getstatus[i]->numqueries = 0;
+					getstatus[i]->time = 0;
+					getstatus[i]->inuse = qfalse;
+					NET_StringToAdr("0.0.0.0:0", &getstatus[i]->adr); //Reset IP
+				}
+			}
+		}
 	}
 
 	if ( com_speeds->integer ) {
@@ -1112,6 +1233,8 @@ void SV_Frame( int msec ) {
 
 	// send a heartbeat to the master if needed
 	SV_MasterHeartbeat( HEARTBEAT_GAME );
+	
+	//SV_MasterGameCompleteStatus();
 
 	if ( com_dedicated->integer ) {
 		frameEndTime = Sys_Milliseconds();

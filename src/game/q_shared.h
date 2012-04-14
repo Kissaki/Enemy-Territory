@@ -34,8 +34,10 @@ If you have questions concerning this license or the applicable additional terms
 
 //#define PRE_RELEASE_DEMO
 
+//#define ETFIX_VER "0.1a"
+
 #ifndef PRE_RELEASE_DEMO
-#define Q3_VERSION      "ET 2.60d"
+#define Q3_VERSION      "ETENG 0.3"
 #else
 #define Q3_VERSION      "ET 2.32"
 #endif // PRE_RELEASE_DEMO

@@ -504,6 +504,7 @@ void SV_SpawnServer( char *server, qboolean killBots ) {
 
 	Com_Printf( "------ Server Initialization ------\n" );
 	Com_Printf( "Server: %s\n",server );
+	sv.InitGetstatusFix = qfalse;
 
 	// if not running a dedicated server CL_MapLoading will connect the client to the server
 	// also print some status stuff
@@ -729,6 +730,20 @@ void SV_SpawnServer( char *server, qboolean killBots ) {
 
 	Cvar_Set( "sv_serverRestarting", "0" );
 
+	//Init Getstatus exploit fix	// N!trox credits
+	if(!sv.InitGetstatusFix){
+		for(i = 0 ; i < 256 ; i++){
+			getstatus[i] = malloc(sizeof(getstatus_list_t));
+			getstatus[i]->time = 0;
+			getstatus[i]->numqueries = 0;
+			getstatus[i]->reject = qfalse;
+			getstatus[i]->inuse = qfalse;
+			NET_StringToAdr("0.0.0.0:0", &getstatus[i]->adr);
+		}
+		sv.InitGetstatusFix = qtrue; //This way we don't init it again
+	}
+
+	Com_Printf("ETENG: Engine Initialized!\n");		// Sol
 	Com_Printf( "-----------------------------------\n" );
 
 }
@@ -859,6 +874,24 @@ void SV_Init( void ) {
 	// fretn - note: redirecting of clients to other servers relies on this,
 	// ET://someserver.com
 	sv_fullmsg = Cvar_Get( "sv_fullmsg", "Server is full.", CVAR_ARCHIVE );
+
+	//Sol
+	sv_protocolcheck = 	Cvar_Get( "sv_protocolcheck", "1", CVAR_ARCHIVE );
+	sv_maxreqpersec = 	Cvar_Get( "sv_maxreqs", "4", CVAR_ARCHIVE );
+	sv_reqtime		= 	Cvar_Get( "sv_reqtime",	"1000"	, CVAR_ARCHIVE );
+	sv_maxclientsip = 	Cvar_Get( "sv_maxclientsip", "3", CVAR_ARCHIVE );
+	sv_protect		=	Cvar_Get( "sv_protect"		,"1", CVAR_ARCHIVE );
+	sv_rconfilter		= Cvar_Get( "sv_rconfilter" , "1", CVAR_ARCHIVE ) ;		// default: 1
+	sv_protocol			= Cvar_Get( "sv_protocol",	"82", CVAR_ARCHIVE ) ;
+	sv_rconlist[0]		= Cvar_Get( "sv_rcon1" , "" , CVAR_ARCHIVE );
+	sv_rconlist[1]		= Cvar_Get( "sv_rcon2" , "" , CVAR_ARCHIVE );
+	sv_rconlist[2]		= Cvar_Get( "sv_rcon3" , "" , CVAR_ARCHIVE );
+	sv_rconlist[3]		= Cvar_Get( "sv_rcon4" , "" , CVAR_ARCHIVE );
+	sv_rconlist[4]		= Cvar_Get( "sv_rcon5" , "" , CVAR_ARCHIVE );
+	
+	sv_bothmaster		= Cvar_Get( "sv_bothmaster", "0", CVAR_ROM );
+	sv_statustime		= Cvar_Get( "sv_statustime", "3", CVAR_ROM );
+
 
 	// initialize bot cvars so they are listed and can be set before loading the botlib
 	SV_BotInitCvars();

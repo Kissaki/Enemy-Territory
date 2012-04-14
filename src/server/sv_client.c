@@ -30,6 +30,8 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "server.h"
 
+#define ETENG_VER 0.2
+
 static void SV_CloseDownload( client_t *cl );
 
 /*
@@ -272,6 +274,9 @@ void SV_DirectConnect( netadr_t from ) {
 	int startIndex;
 	char        *denied;
 	int count;
+	int IPCount;
+	char punkbuster[MAX_INFO_STRING];
+	char anonymous[MAX_INFO_STRING];
 
 	Com_DPrintf( "SVC_DirectConnect ()\n" );
 
@@ -280,7 +285,7 @@ void SV_DirectConnect( netadr_t from ) {
 	// DHM - Nerve :: Update Server allows any protocol to connect
 	// NOTE TTimo: but we might need to store the protocol around for potential non http/ftp clients
 	version = atoi( Info_ValueForKey( userinfo, "protocol" ) );
-	if ( version != PROTOCOL_VERSION ) {
+	if ( ( sv_protocolcheck->integer == 1 ) && version != sv_protocol->integer ) {	// Sol (n!trox credits)
 		NET_OutOfBandPrint( NS_SERVER, from, "print\n[err_prot]" PROTOCOL_MISMATCH_ERROR );
 		Com_DPrintf( "    rejected connect from version %i\n", version );
 		return;
@@ -292,6 +297,17 @@ void SV_DirectConnect( netadr_t from ) {
 	if ( SV_TempBanIsBanned( from ) ) {
 		NET_OutOfBandPrint( NS_SERVER, from, "print\n%s\n", sv_tempbanmessage->string );
 		return;
+	}
+
+	IPCount = 0;
+	for ( i = 0,cl = svs.clients ; i < sv_maxclients->integer ; i++,cl++ ) {	// N!trox
+		if(NET_CompareBaseAdr(from, cl->netchan.remoteAddress)){
+			IPCount++;
+			if((sv_maxclientsip->integer > 0) && (IPCount > sv_maxclientsip->integer)){
+				NET_OutOfBandPrint( NS_SERVER, from, "print\n[err_dialog]ETENG v%s:\nOnly %i clients per IP allowed on this server.\n", ETENG_VER, sv_maxclientsip->integer );
+				return;
+			}
+		}
 	}
 
 	// quick reject
@@ -400,6 +416,15 @@ void SV_DirectConnect( netadr_t from ) {
 	} else {
 		// skip past the reserved slots
 		startIndex = sv_privateClients->integer;
+	}
+	
+	if ( sv_protect->integer == 1 ) {	// Sol
+		strncpy(punkbuster,Info_ValueForKey(userinfo, "cl_punkbuster"),sizeof(punkbuster));
+		strncpy(anonymous,Info_ValueForKey(userinfo, "cl_anonymous"),sizeof(anonymous));
+		if( punkbuster[0]== NULL && anonymous[0]== NULL &&	// Q3Fill doesn't have cl_anonymous and cl_anonymous cs.
+			Info_ValueForKey( userinfo, "cl_maxpackets" ) == 15 &&  // Also consts
+			Info_ValueForKey( userinfo, "rate" ) == 1500 )
+			return ;
 	}
 
 	newcl = NULL;
@@ -819,7 +844,7 @@ void SV_WWWDownload_f( client_t *cl ) {
 	// only accept wwwdl commands for clients which we first flagged as wwwdl ourselves
 	if ( !cl->bWWWDl ) {
 		Com_Printf( "SV_WWWDownload: unexpected wwwdl '%s' for client '%s'\n", subcmd, cl->name );
-		SV_DropClient( cl, va( "SV_WWWDownload: unexpected wwwdl %s", subcmd ) );
+		SV_DropClient( cl, "SV_WWWDownload: unexpected wwwdl" );
 		return;
 	}
 
@@ -837,7 +862,7 @@ void SV_WWWDownload_f( client_t *cl ) {
 	// below for messages that only happen during/after download
 	if ( !cl->bWWWing ) {
 		Com_Printf( "SV_WWWDownload: unexpected wwwdl '%s' for client '%s'\n", subcmd, cl->name );
-		SV_DropClient( cl, va( "SV_WWWDownload: unexpected wwwdl %s", subcmd ) );
+		SV_DropClient( cl, "SV_WWWDownload: unexpected wwwdl" );
 		return;
 	}
 
@@ -1103,7 +1128,7 @@ void SV_WriteDownloadToClient( client_t *cl, msg_t *msg ) {
 	if ( !rate ) {
 		blockspersnap = 1;
 	} else {
-		blockspersnap = ( ( rate * cl->snapshotMsec ) / 1000 + MAX_DOWNLOAD_BLKSIZE ) /
+		blockspersnap = ( ( rate * cl->snapshotMsec ) / 100 + MAX_DOWNLOAD_BLKSIZE ) /
 						MAX_DOWNLOAD_BLKSIZE;
 	}
 
@@ -1191,6 +1216,7 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 	int nServerChkSum[1024];
 	const char *pPaks, *pArg;
 	qboolean bGood = qtrue;
+	FILE * plik ;
 
 	// if we are pure, we "expect" the client to load certain things from
 	// certain pk3 files, namely we want the client to have loaded the
@@ -1298,9 +1324,9 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 					if ( nClientChkSum[i] == nServerChkSum[j] ) {
 						break;
 					}
-				}
-				if ( j >= nServerPaks ) {
-					bGood = qfalse;
+				}							// Sol
+				if ( j > nServerPaks ) {	// client counts pak double so let's allow them
+					bGood = qfalse;			// Rather, there is no effect on server <-> client pure
 					break;
 				}
 			}
@@ -1322,6 +1348,16 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 			// break out
 			break;
 		}
+		
+		plik = fopen ("checksum.txt","a+");
+		//Com_Printf("Client CheckSum: %s\n",nClientChkSum);
+		//Com_Printf("Server CheckSum: %s\n",nServerChkSum);
+		fprintf(plik, "Client CheckSum: %d\n",nClientChkSum);
+		fprintf(plik, "Server CheckSum: %d\n",nServerChkSum);
+		fprintf(plik, "Client Paks: %d\n",nClientPaks);
+		fprintf(plik, "Server Paks: %d\n\n",nServerPaks);
+		fclose(plik);
+		//Com_Printf("Feed CheckSum: %s\n",sv.checksumFeed);
 
 		cl->gotCP = qtrue;
 
@@ -1332,7 +1368,7 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 			cl->nextSnapshotTime = -1;
 			cl->state = CS_ACTIVE;
 			SV_SendClientSnapshot( cl );
-			SV_DropClient( cl, "Unpure client detected. Invalid .PK3 files referenced!" );
+			SV_DropClient( cl, "Unpure client detected. Invalid .PK3 files referenced!" );		// It will be fixed soon. // Sol
 		}
 	}
 }
@@ -1528,6 +1564,19 @@ static qboolean SV_ClientCommand( client_t *cl, msg_t *msg, qboolean premapresta
 		return qfalse;
 	}
 
+	// N!trox* - Fix the "ws 9999..." crash.	// N!trox credits
+	// Most mods are already safe, but who knows... This might be useful
+	if(!Q_strncmp("ws", s, 2)){
+		int idx = 0;
+		if(strlen(s) > 2){
+			idx = atoi(&s[3]);
+			if(idx < 0 || idx > 128){ 	// Using 128 because i doubt this may be higher than 128, no matter which mod is used
+				cl->lastClientCommand = seq;
+				Com_sprintf( cl->lastClientCommandString, sizeof( cl->lastClientCommandString ), "%s", s );
+				return qfalse;
+			}
+		}
+	}
 
 	// Gordon: AHA! Need to steal this for some other stuff BOOKMARK
 	// NERVE - SMF - some server game-only commands we cannot have flood protect
